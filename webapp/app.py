@@ -25,7 +25,7 @@ from modules.video_generator import generate_video
 
 # Define Celery task
 @celery.task
-def create_video_task(script, image_path, voice_id=None, music_path=None):
+def create_video_task(script, image_path, voice_id=None, music_path=None, aspect_ratio="16:9", resolution="720p"):
     # 1. Generate audio
     audio_filename = f"{uuid.uuid4()}.wav"
     audio_path = os.path.join(app.config['UPLOAD_FOLDER'], audio_filename)
@@ -40,12 +40,31 @@ def create_video_task(script, image_path, voice_id=None, music_path=None):
         os.system(f"ffmpeg -i {audio_path} -i {music_path} -filter_complex \"[1:a]volume=0.3[a1];[0:a][a1]amix=inputs=2:duration=longest\" {mixed_audio_path}")
         final_audio_path = mixed_audio_path
 
-    # 3. Generate video
-    # This assumes SadTalker is in the parent directory. This will need to be configured.
-    # We also need to handle the SadTalker model downloads.
+    # 3. Generate subtitles
+    srt_filename = f"{uuid.uuid4()}.srt"
+    srt_path = os.path.join(app.config['UPLOAD_FOLDER'], srt_filename)
+    from modules.subtitle_generator import generate_srt
+    generate_srt(final_audio_path, srt_path)
+
+    # 4. Generate video with subtitles
     video_path = generate_video(image_path, final_audio_path, app.config['RESULT_FOLDER'])
 
-    return video_path
+    # Burn subtitles onto the video
+    subtitled_video_filename = f"{uuid.uuid4()}_subtitled.mp4"
+    subtitled_video_path = os.path.join(app.config['RESULT_FOLDER'], subtitled_video_filename)
+    os.system(f"ffmpeg -i {video_path} -vf \"subtitles={srt_path}\" {subtitled_video_path}")
+
+    # Format the video
+    formatted_video_filename = f"{uuid.uuid4()}_formatted.mp4"
+    formatted_video_path = os.path.join(app.config['RESULT_FOLDER'], formatted_video_filename)
+
+    width, height = (1280, 720) if resolution == "720p" else (1920, 1080)
+    if aspect_ratio == "9:16":
+        width, height = height, width
+
+    os.system(f"ffmpeg -i {subtitled_video_path} -vf \"scale={width}:{height},setsar=1\" {formatted_video_path}")
+
+    return formatted_video_path
 
 # Routes
 @app.route('/')
@@ -84,9 +103,11 @@ def generate():
         music.save(music_path)
 
     voice_id = request.form.get('voice')
+    aspect_ratio = request.form.get('aspect-ratio')
+    resolution = request.form.get('resolution')
 
     # Start the video generation task
-    task = create_video_task.delay(script, image_path, voice_id, music_path)
+    task = create_video_task.delay(script, image_path, voice_id, music_path, aspect_ratio, resolution)
 
     return jsonify({'task_id': task.id})
 
@@ -100,10 +121,10 @@ def task_status(task_id):
     task = create_video_task.AsyncResult(task_id)
     if task.state == 'PENDING':
         response = {'state': task.state, 'status': 'Pending...'}
+    elif task.state == 'SUCCESS':
+        response = {'state': task.state, 'result': task.result}
     elif task.state != 'FAILURE':
-        response = {'state': task.state, 'status': task.info.get('status', '')}
-        if 'result' in task.info:
-            response['result'] = task.info['result']
+        response = {'state': task.state, 'status': 'In progress...'}
     else:
         response = {'state': task.state, 'status': str(task.info)}
     return jsonify(response)

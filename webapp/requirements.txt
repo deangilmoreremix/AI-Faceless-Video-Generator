@@ -3,3 +3,6 @@ openai
 celery
 redis
 pyttsx3
+SpeechRecognition
+openai-whisper
+pydub
