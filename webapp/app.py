@@ -22,6 +22,7 @@ celery.conf.update(app.config)
 from modules.script_generator import get_script
 from modules.tts_generator import text_to_speech
 from modules.video_generator import generate_video
+from modules.subtitle_generator import generate_srt
 
 # Define Celery task
 @celery.task
@@ -36,14 +37,12 @@ def create_video_task(script, image_path, voice_id=None, music_path=None, aspect
     if music_path:
         mixed_audio_filename = f"{uuid.uuid4()}_mixed.wav"
         mixed_audio_path = os.path.join(app.config['UPLOAD_FOLDER'], mixed_audio_filename)
-        # Mix the two audio files, reducing the background music volume
         os.system(f"ffmpeg -i {audio_path} -i {music_path} -filter_complex \"[1:a]volume=0.3[a1];[0:a][a1]amix=inputs=2:duration=longest\" {mixed_audio_path}")
         final_audio_path = mixed_audio_path
 
     # 3. Generate subtitles
     srt_filename = f"{uuid.uuid4()}.srt"
     srt_path = os.path.join(app.config['UPLOAD_FOLDER'], srt_filename)
-    from modules.subtitle_generator import generate_srt
     generate_srt(final_audio_path, srt_path)
 
     # 4. Generate video with subtitles
