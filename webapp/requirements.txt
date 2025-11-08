@@ -1,0 +1,12 @@
+Flask
+openai
+celery
+redis
+pyttsx3
+SpeechRecognition
+openai-whisper
+pydub
+Flask-SQLAlchemy
+Flask-Login
+Flask-WTF
+Werkzeug
