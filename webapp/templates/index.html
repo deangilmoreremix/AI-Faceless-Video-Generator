@@ -6,107 +6,122 @@
 </head>
 <body>
     <div class="container">
+        <nav>
+            {% if user.is_authenticated %}
+                <a href="{{ url_for('dashboard') }}">Dashboard</a>
+                <a href="{{ url_for('logout') }}">Logout</a>
+            {% else %}
+                <a href="{{ url_for('login') }}">Login</a>
+                <a href="{{ url_for('register') }}">Register</a>
+            {% endif %}
+        </nav>
         <h1>Faceless Video Generator</h1>
-        <div id="initial-form">
-            <label for="topic">Topic:</label>
-            <input type="text" id="topic" name="topic" required>
-            <button id="generate-script-btn">Generate Script</button>
-        </div>
+        {% if user.is_authenticated %}
+            <div id="initial-form">
+                <label for="topic">Topic:</label>
+                <input type="text" id="topic" name="topic" required>
+                <button id="generate-script-btn">Generate Script</button>
+            </div>
 
-        <div id="script-editor" style="display: none;">
-            <label for="script">Script:</label>
-            <textarea id="script" name="script" rows="10"></textarea>
-            <form id="video-form">
-                <label for="avatar">Avatar:</label>
-                <input type="file" id="avatar" name="avatar" accept="image/*" required>
-                <label for="background-music">Background Music (optional):</label>
-                <input type="file" id="background-music" name="background-music" accept="audio/*">
-                <label for="voice">Voice:</label>
-                <select id="voice" name="voice"></select>
-                <label for="aspect-ratio">Aspect Ratio:</label>
-                <select id="aspect-ratio" name="aspect-ratio">
-                    <option value="16:9">16:9 (Landscape)</option>
-                    <option value="9:16">9:16 (Portrait)</option>
-                </select>
-                <label for="resolution">Resolution:</label>
-                <select id="resolution" name="resolution">
-                    <option value="720p">720p</option>
-                    <option value="1080p">1080p</option>
-                </select>
-                <button type="submit">Generate Video</button>
-            </form>
-        </div>
+            <div id="script-editor" style="display: none;">
+                <label for="script">Script:</label>
+                <textarea id="script" name="script" rows="10"></textarea>
+                <form id="video-form">
+                    <label for="avatar">Avatar:</label>
+                    <input type="file" id="avatar" name="avatar" accept="image/*" required>
+                    <label for="background-music">Background Music (optional):</label>
+                    <input type="file" id="background-music" name="background-music" accept="audio/*">
+                    <label for="voice">Voice:</label>
+                    <select id="voice" name="voice"></select>
+                    <label for="aspect-ratio">Aspect Ratio:</label>
+                    <select id="aspect-ratio" name="aspect-ratio">
+                        <option value="16:9">16:9 (Landscape)</option>
+                        <option value="9:16">9:16 (Portrait)</option>
+                    </select>
+                    <label for="resolution">Resolution:</label>
+                    <select id="resolution" name="resolution">
+                        <option value="720p">720p</option>
+                        <option value="1080p">1080p</option>
+                    </select>
+                    <button type="submit">Generate Video</button>
+                </form>
+            </div>
+        {% else %}
+            <h2>Please log in to create a video</h2>
+        {% endif %}
 
         <div id="status"></div>
         <div id="result"></div>
     </div>
     <script>
-        // Fetch voices and populate the dropdown
-        fetch('/voices')
-            .then(response => response.json())
-            .then(voices => {
-                const voiceSelect = document.getElementById('voice');
-                voices.forEach(voice => {
-                    const option = document.createElement('option');
-                    option.value = voice.id;
-                    option.textContent = voice.name;
-                    voiceSelect.appendChild(option);
+        if (document.getElementById('generate-script-btn')) {
+            // Fetch voices and populate the dropdown
+            fetch('/voices')
+                .then(response => response.json())
+                .then(voices => {
+                    const voiceSelect = document.getElementById('voice');
+                    voices.forEach(voice => {
+                        const option = document.createElement('option');
+                        option.value = voice.id;
+                        option.textContent = voice.name;
+                        voiceSelect.appendChild(option);
+                    });
+                });
+
+            document.getElementById('generate-script-btn').addEventListener('click', function() {
+                const topic = document.getElementById('topic').value;
+                const statusDiv = document.getElementById('status');
+                statusDiv.innerHTML = 'Generating script...';
+
+                fetch('/generate-script', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `topic=${encodeURIComponent(topic)}`
+                })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('script').value = data.script;
+                    document.getElementById('initial-form').style.display = 'none';
+                    document.getElementById('script-editor').style.display = 'block';
+                    statusDiv.innerHTML = '';
                 });
             });
 
-        document.getElementById('generate-script-btn').addEventListener('click', function() {
-            const topic = document.getElementById('topic').value;
-            const statusDiv = document.getElementById('status');
-            statusDiv.innerHTML = 'Generating script...';
+            document.getElementById('video-form').addEventListener('submit', function(event) {
+                event.preventDefault();
+                const formData = new FormData(this);
+                formData.append('script', document.getElementById('script').value);
+                const statusDiv = document.getElementById('status');
+                const resultDiv = document.getElementById('result');
 
-            fetch('/generate-script', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `topic=${encodeURIComponent(topic)}`
-            })
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('script').value = data.script;
-                document.getElementById('initial-form').style.display = 'none';
-                document.getElementById('script-editor').style.display = 'block';
-                statusDiv.innerHTML = '';
+                statusDiv.innerHTML = 'Uploading...';
+                resultDiv.innerHTML = '';
+
+                fetch('/generate', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    statusDiv.innerHTML = 'Generating video... This may take a few minutes.';
+                    const taskId = data.task_id;
+                    const interval = setInterval(() => {
+                        fetch(`/status/${taskId}`)
+                        .then(response => response.json())
+                        .then(task => {
+                            if (task.state === 'SUCCESS') {
+                                clearInterval(interval);
+                                statusDiv.innerHTML = 'Video generated!';
+                                resultDiv.innerHTML = `<video width="320" height="240" controls><source src="${task.result}" type="video/mp4"></video><br><a href="${task.result}" download>Download Video</a>`;
+                            } else if (task.state === 'FAILURE') {
+                                clearInterval(interval);
+                                statusDiv.innerHTML = 'An error occurred.';
+                            }
+                        });
+                    }, 5000);
+                });
             });
-        });
-
-        document.getElementById('video-form').addEventListener('submit', function(event) {
-            event.preventDefault();
-            const formData = new FormData(this);
-            formData.append('script', document.getElementById('script').value);
-            const statusDiv = document.getElementById('status');
-            const resultDiv = document.getElementById('result');
-
-            statusDiv.innerHTML = 'Uploading...';
-            resultDiv.innerHTML = '';
-
-            fetch('/generate', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                statusDiv.innerHTML = 'Generating video... This may take a few minutes.';
-                const taskId = data.task_id;
-                const interval = setInterval(() => {
-                    fetch(`/status/${taskId}`)
-                    .then(response => response.json())
-                    .then(task => {
-                        if (task.state === 'SUCCESS') {
-                            clearInterval(interval);
-                            statusDiv.innerHTML = 'Video generated!';
-                            resultDiv.innerHTML = `<video width="320" height="240" controls><source src="${task.result}" type="video/mp4"></video><br><a href="${task.result}" download>Download Video</a>`;
-                        } else if (task.state === 'FAILURE') {
-                            clearInterval(interval);
-                            statusDiv.innerHTML = 'An error occurred.';
-                        }
-                    });
-                }, 5000);
-            });
-        });
+        }
     </script>
 </body>
 </html>
